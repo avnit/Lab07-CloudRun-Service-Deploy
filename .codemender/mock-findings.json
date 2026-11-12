@@ -53,14 +53,14 @@
       "cwe_id": "CWE-312",
       "vulnerability_type": "CLEARTEXT_CREDENTIALS",
       "file_path": "terraform/main.tf",
-      "line_number": 155,
+      "line_number": 187,
       "title": "MySQL root password passed to Cloud Run as a plaintext env value",
       "description": "terraform/main.tf sets DB_PASSWORD and MYSQL_ROOT_PASSWORD as plaintext env values on the Cloud Run service, and the app connects to MySQL as root (CWE-250). Anyone who can view the Cloud Run revision or the Terraform state sees the credential; CM-0001 then runs with full database privileges. Fix: store the password in Secret Manager and reference it with value_source.secret_key_ref, and connect as a least-privilege database user.",
       "status": "OPEN",
       "patch_ref": "",
       "pr_url": "",
       "wiz_issue_id": "wiz-issue-0003",
-      "message": "CodeMender finding CM-0003 (CWE-312) in terraform/main.tf:155"
+      "message": "CodeMender finding CM-0003 (CWE-312) in terraform/main.tf:187"
     },
     {
       "event_type": "CODEMENDER_FINDING",

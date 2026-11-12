@@ -9,7 +9,7 @@ import os
 import unittest
 
 from tests import APP_ROOT, SeededDbMixin
-from app import db, notes
+from app import db, notes, refresher
 
 HAS_FLASK = importlib.util.find_spec("flask") is not None
 
@@ -56,6 +56,36 @@ class SourcesTest(SeededDbMixin, unittest.TestCase):
         self.assertEqual(doc["websites"]["pages"], seed["websites"]["pages"])
         self.assertEqual(doc["match"],
                          {k: v for k, v in seed["match"].items() if k != "comment"})
+
+
+class RefresherTest(SeededDbMixin, unittest.TestCase):
+    FRESH = [{
+        "id": "pod-fresh-1", "title": "Fresh Hermes episode", "source": "podcast",
+        "creator": "Test Feed", "topics": ["Hermes"], "url": "https://example.org/ep1",
+        "published_at": "2026-11-01", "duration_seconds": None, "description": "new",
+    }]
+
+    def test_refresh_replaces_the_catalog_with_fetched_items(self):
+        seen = {}
+
+        def collect(sources):
+            seen["topics"] = sources["topics"]
+            return self.FRESH
+
+        self.assertEqual(refresher.refresh_once(collect=collect), 1)
+        self.assertEqual(seen["topics"], ["Antigravity", "Hermes"])  # read from the DB
+        catalog = db.get_catalog()
+        self.assertEqual([item["id"] for item in catalog["items"]], ["pod-fresh-1"])
+        self.assertNotEqual(catalog["generated_at"], "seed")
+        self.assertEqual(refresher.status()["last_result"], "updated")
+
+    def test_empty_fetch_keeps_the_existing_catalog(self):
+        before = db.get_catalog()
+        self.assertEqual(refresher.refresh_once(collect=lambda sources: []), 0)
+        self.assertEqual(db.get_catalog(), before)
+
+    def test_refresh_is_off_unless_an_interval_is_set(self):
+        self.assertIsNone(refresher.start(0))
 
 
 class NotesTest(unittest.TestCase):

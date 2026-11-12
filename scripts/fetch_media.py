@@ -279,17 +279,8 @@ def use_database() -> bool:
     return bool(os.environ.get("DB_HOST")) or "--db" in sys.argv[1:]
 
 
-def main() -> int:
-    db = None
-    if use_database():
-        sys.path.insert(0, str(ROOT))
-        from app import db  # noqa: PLC0415 - only needed in database mode
-
-        db.init_db()
-        sources = db.get_sources()
-        log(f"• Sources: loaded from the {db.backend()} database")
-    else:
-        sources = json.loads(SOURCES_FILE.read_text(encoding="utf-8"))
+def collect_items(sources: dict) -> list[dict]:
+    """Fetch every configured source and return de-duplicated items, newest first."""
     match_rules = sources.get("match", {})
     match_rules = {k: v for k, v in match_rules.items() if k != "comment"}
 
@@ -304,6 +295,21 @@ def main() -> int:
         by_url.setdefault(it["url"], it)
     items = list(by_url.values())
     items.sort(key=lambda x: (x.get("published_at") or "0000"), reverse=True)
+    return items
+
+
+def main() -> int:
+    db = None
+    if use_database():
+        sys.path.insert(0, str(ROOT))
+        from app import db  # noqa: PLC0415 - only needed in database mode
+
+        db.init_db()
+        sources = db.get_sources()
+        log(f"• Sources: loaded from the {db.backend()} database")
+    else:
+        sources = json.loads(SOURCES_FILE.read_text(encoding="utf-8"))
+    items = collect_items(sources)
 
     if not items:
         log("\nNo live items fetched (no keys/feeds configured). Keeping existing catalog.json.")

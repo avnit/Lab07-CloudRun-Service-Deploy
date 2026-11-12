@@ -79,10 +79,47 @@ skipped with a warning, and the other sources still run.
 
 ### Keep it fresh automatically
 
-Run the fetcher on a schedule, e.g. a cron entry:
+The backend keeps the catalog current by itself. With
+`REFRESH_INTERVAL_MINUTES` set, it runs the fetcher **once at start-up and then
+every N minutes**, reading the `sources` table and replacing the `items` table
+with what it finds. The web app picks up the new content on its next load.
+
+| Where | How it is switched on |
+|---|---|
+| Cloud Run (Terraform) | `refresh_interval_minutes` in `terraform.tfvars`, default `60`. `0` turns it off. |
+| `docker compose` | `REFRESH_INTERVAL_MINUTES` in `.env`, default `60`. |
+| `python -m app.main` | Off unless you export `REFRESH_INTERVAL_MINUTES`. |
+
+Check what the last run did:
+
+```bash
+curl http://127.0.0.1:8080/health
+# "refresh": {"enabled": true, "interval_minutes": 60.0, "last_run_at": "...",
+#             "last_result": "updated", "last_item_count": 42}
+```
+
+Three things decide whether a run actually brings in new content:
+
+- **Real sources.** `data/sources.json` ships with placeholder feeds
+  (`example.com`), which the fetcher skips. Add real podcast RSS feeds, web
+  pages and YouTube search terms there and redeploy; that file seeds the
+  `sources` table.
+- **A YouTube key, for YouTube.** Set `youtube_api_key` in `terraform.tfvars`
+  (Terraform stores it in Secret Manager and gives only the service's own
+  account access) or `YOUTUBE_API_KEY` in `.env`. Without it the YouTube source
+  is skipped and podcasts and web pages still refresh.
+- **Something was found.** If a run fetches nothing, the existing catalog is
+  kept, so a network error or an empty feed never blanks the app.
+
+The refresh runs inside the web process rather than as a separate Cloud Run job
+because the MySQL sidecar is only reachable from its own instance. It also
+means a fresh instance refills its (empty) database immediately on start.
+
+For the static-site setup with no backend, run the fetcher on a schedule
+yourself, e.g. a cron entry:
 
 ```cron
-0 8 * * *  cd /path/to/antigravity-hermes-watchlist && YOUTUBE_API_KEY=... python3 scripts/fetch_media.py
+0 8 * * *  cd /path/to/repo && YOUTUBE_API_KEY=... python3 scripts/fetch_media.py
 ```
 
 ## Run the backend locally
@@ -112,14 +149,14 @@ builds the image and creates everything:
   gunicorn) and a `mysql` sidecar it reaches on `127.0.0.1:3306`
 - an Artifact Registry repository for the image
 - a runtime service account with no project roles
-- the Cloud Run, Artifact Registry and Cloud Build APIs
+- the Cloud Run, Artifact Registry, Cloud Build and Secret Manager APIs
 
 ### Before you start
 
 | You need | Notes |
 |---|---|
 | A **throwaway** GCP project with billing enabled | The app is intentionally vulnerable. Do not use a project that holds anything real. |
-| Owner on that project, or Cloud Run Admin, Artifact Registry Admin, Cloud Build Editor, Service Account Admin, Service Account User and Service Usage Admin | |
+| Owner on that project, or Cloud Run Admin, Artifact Registry Admin, Cloud Build Editor, Secret Manager Admin, Service Account Admin, Service Account User and Service Usage Admin | |
 | [Terraform](https://developer.hashicorp.com/terraform/install) 1.5 or newer | `.terraform-version` pins 1.9.8 for tfenv users. |
 | The [gcloud CLI](https://cloud.google.com/sdk/docs/install) | Terraform calls `gcloud builds submit` to build the image. |
 
@@ -149,6 +186,8 @@ Edit `terraform.tfvars` and set `project_id`. The other settings are optional:
 |---|---|---|
 | `project_id` | *(required)* | Project to deploy into. |
 | `region` | `us-central1` | Region for Cloud Run and Artifact Registry. |
+| `refresh_interval_minutes` | `60` | How often the app pulls the latest content (also at start-up). `0` = off. |
+| `youtube_api_key` | *(unset)* | YouTube Data API key for the fetcher, stored in Secret Manager. Unset = YouTube is skipped. |
 | `allow_unauthenticated` | `false` | `true` makes the service public. Needed for the lab's "internet-facing" findings; lab projects only. |
 | `image` | *(unset)* | Deploy an image you built yourself and skip the Cloud Build step. |
 | `db_root_password` | *(unset)* | MySQL root password. Unset = Terraform generates a random one. |
@@ -160,7 +199,7 @@ Edit `terraform.tfvars` and set `project_id`. The other settings are optional:
 
 ```bash
 terraform init
-terraform plan      # review: 8 resources on a first run (9 with allow_unauthenticated)
+terraform plan      # review: 9 resources on a first run (more with a YouTube key or public access)
 terraform apply
 ```
 
@@ -210,7 +249,7 @@ always allocated (`min_instance_count = 1`), so it costs money while it exists.
 
 - **The database is ephemeral.** MySQL's data directory is an in-memory
   volume, so each new instance (every deploy or restart) starts empty and is
-  re-seeded from `data/*.json`. Anything the fetcher wrote is lost. Scaling is
+  re-seeded from `data/*.json`, then refilled by the start-up refresh. Scaling is
   pinned to one instance because every instance has its own private database.
   For durable data, point `DB_HOST` at Cloud SQL for MySQL instead.
 - **The MySQL root password is stored in plaintext** in Terraform state and on
@@ -244,6 +283,7 @@ app/
   main.py          # Flask app: serves web/ and the /api routes
   db.py            # MySQL (Cloud Run) / SQLite (local, tests) access + seeding
   notes.py         # topic notes served by /api/notes
+  refresher.py     # background thread that re-runs the fetcher on a timer
 terraform/
   main.tf          # Cloud Run service (web + MySQL sidecar), image build, IAM
 data/

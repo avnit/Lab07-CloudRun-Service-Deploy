@@ -12,7 +12,7 @@ from typing import Optional
 
 from flask import Flask, Response, jsonify, redirect, request, send_from_directory
 
-from app import db, notes
+from app import db, notes, refresher
 
 logger = logging.getLogger("watchlist")
 
@@ -36,6 +36,8 @@ def create_app(config: Optional[dict] = None) -> Flask:
         db.wait_for_db()
     db.init_db(app.config["DB_PATH"])
     logger.info("database backend: %s", db.backend())
+    if not app.config.get("TESTING"):
+        refresher.start(refresher.interval_from_env(), app.config["DB_PATH"])
 
     @app.get("/")
     def root():
@@ -51,7 +53,12 @@ def create_app(config: Optional[dict] = None) -> Flask:
 
     @app.get("/health")
     def health():
-        return jsonify({"status": "ok", "service": "watchlist", "db": db.backend()})
+        return jsonify({
+            "status": "ok",
+            "service": "watchlist",
+            "db": db.backend(),
+            "refresh": refresher.status(),
+        })
 
     @app.get("/api/catalog")
     def catalog():

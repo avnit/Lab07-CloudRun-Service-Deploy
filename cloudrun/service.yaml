@@ -57,6 +57,9 @@ spec:
             # VULNERABLE (CWE-798): plaintext credential. Lab-only value.
             - name: DB_PASSWORD
               value: watchlist-lab-root-pw
+            # Pull the latest content at start-up and every N minutes (0 = off).
+            - name: REFRESH_INTERVAL_MINUTES
+              value: "60"
           resources:
             limits:
               cpu: "1"

@@ -55,6 +55,9 @@ locals {
 
   db_root_password = coalesce(var.db_root_password, random_password.db_root.result)
 
+  # The YouTube source is optional: without a key the fetcher skips it.
+  has_youtube_key = nonsensitive(var.youtube_api_key != null)
+
   labels = {
     app     = "antigravity-hermes-watchlist"
     purpose = "security-lab"
@@ -67,6 +70,7 @@ resource "google_project_service" "required" {
     "run.googleapis.com",
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
+    "secretmanager.googleapis.com",
   ])
   service            = each.value
   disable_on_destroy = false
@@ -106,6 +110,34 @@ resource "google_service_account" "runtime" {
 resource "random_password" "db_root" {
   length  = 24
   special = false
+}
+
+# ----------------------------- fetcher secret ------------------------------
+# YouTube Data API key for the background fetcher. Created only when
+# var.youtube_api_key is set; only the runtime service account can read it.
+resource "google_secret_manager_secret" "youtube_api_key" {
+  count     = local.has_youtube_key ? 1 : 0
+  secret_id = "${var.service_name}-youtube-api-key"
+  labels    = local.labels
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_secret_manager_secret_version" "youtube_api_key" {
+  count       = local.has_youtube_key ? 1 : 0
+  secret      = google_secret_manager_secret.youtube_api_key[0].id
+  secret_data = var.youtube_api_key
+}
+
+resource "google_secret_manager_secret_iam_member" "youtube_api_key" {
+  count     = local.has_youtube_key ? 1 : 0
+  secret_id = google_secret_manager_secret.youtube_api_key[0].id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.runtime.email}"
 }
 
 # ----------------------------- Cloud Run -----------------------------------
@@ -156,6 +188,26 @@ resource "google_cloud_run_v2_service" "watchlist" {
       env {
         name  = "DB_PASSWORD"
         value = local.db_root_password
+      }
+
+      # Re-run the fetcher on this interval (and once at start-up) so the
+      # catalog always holds the latest content. 0 disables it.
+      env {
+        name  = "REFRESH_INTERVAL_MINUTES"
+        value = tostring(var.refresh_interval_minutes)
+      }
+      # The right way to pass a credential: a Secret Manager reference.
+      dynamic "env" {
+        for_each = local.has_youtube_key ? [1] : []
+        content {
+          name = "YOUTUBE_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.youtube_api_key[0].secret_id
+              version = google_secret_manager_secret_version.youtube_api_key[0].version
+            }
+          }
+        }
       }
 
       resources {
@@ -227,6 +279,7 @@ resource "google_cloud_run_v2_service" "watchlist" {
   depends_on = [
     google_project_service.required,
     terraform_data.image_build,
+    google_secret_manager_secret_iam_member.youtube_api_key,
   ]
 }
 
