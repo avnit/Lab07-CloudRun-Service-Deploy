@@ -33,11 +33,29 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
+      # Publish only the static web app, not the whole repository. The app
+      # lives in web/ and loads ../data/catalog.json when there is no backend,
+      # so the site keeps that layout and the root redirects to web/.
+      - name: Build site
+        run: |
+          set -euo pipefail
+          mkdir -p _site/web _site/data
+          cp -r web/. _site/web/
+          cp data/catalog.json _site/data/catalog.json
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>Antigravity &amp; Hermes — Watch Next</title>
+          <meta http-equiv="refresh" content="0; url=web/">
+          <link rel="canonical" href="web/">
+          <a href="web/">Open Watch Next</a>
+          HTML
+          touch _site/.nojekyll
+          test -f _site/web/index.html
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
-          path: '.'
+          path: _site
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
