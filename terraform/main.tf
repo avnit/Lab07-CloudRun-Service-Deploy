@@ -283,10 +283,10 @@ resource "google_cloud_run_v2_service" "watchlist" {
   ]
 }
 
-# Off by default: this app is intentionally vulnerable. The lab's
-# "internet-facing" Wiz findings need allow_unauthenticated = true.
+# Grants unauthenticated access (roles/run.invoker to allUsers) when allow_unauthenticated is true.
 resource "google_cloud_run_v2_service_iam_member" "public" {
   count    = var.allow_unauthenticated ? 1 : 0
+  project  = var.project_id
   name     = google_cloud_run_v2_service.watchlist.name
   location = google_cloud_run_v2_service.watchlist.location
   role     = "roles/run.invoker"

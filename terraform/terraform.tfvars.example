@@ -17,4 +17,4 @@ refresh_interval_minutes = 60
 # youtube_api_key = "..."
 
 # The app is intentionally vulnerable. Only set this in a throwaway lab project.
-allow_unauthenticated = false
+allow_unauthenticated = true

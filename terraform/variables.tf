@@ -64,6 +64,6 @@ variable "youtube_api_key" {
 
 variable "allow_unauthenticated" {
   type        = bool
-  default     = false
-  description = "Grant allUsers roles/run.invoker. Exposes an intentionally vulnerable app to the internet - lab projects only."
+  default     = true
+  description = "Grant allUsers roles/run.invoker. Allows unauthenticated access so the service is reachable."
 }
